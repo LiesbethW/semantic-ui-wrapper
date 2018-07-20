@@ -1,4 +1,4 @@
-(ns fulcrologic.input
+(ns fulcrologic.elements.input
   (:require [devcards.core :refer-macros [defcard-doc defcard]]
             [fulcro.client.cards :refer [defcard-fulcro make-root]]
             [fulcro.client.primitives :as prim :refer [defsc]]
