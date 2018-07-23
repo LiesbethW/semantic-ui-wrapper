@@ -1,2 +1,3 @@
 (ns fulcrologic.cards
-  (:require [fulcrologic.elements]))
+  (:require [fulcrologic.elements]
+            [fulcrologic.collections]))

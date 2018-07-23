@@ -73,4 +73,4 @@
       (f/ui-header {:as :h3 :textAlign :right} "Aligned Right")
       (f/ui-header {:as :h3 :textAlign :left} "Aligned Left")
       (f/ui-header {:as :h3 :textAlign :justified} "This text takes up the full width of the container")
-      (f/ui-header {:as :h3 :textAlign :centered} "Centered"))))
+      (f/ui-header {:as :h3 :textAlign :center} "Centered"))))
