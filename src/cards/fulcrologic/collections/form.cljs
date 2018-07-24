@@ -22,6 +22,34 @@
 (s/def :form/first-name (s/and string? #(seq (clojure.string/trim %))))
 (s/def :form/agreed-to-conditions? true?)
 
+(defn render-field [component field renderer]
+  (let [form         (prim/props component)
+        entity-ident (prim/get-ident component form)
+        id           (str (first entity-ident) "-" (second entity-ident))
+        is-dirty?    (fs/dirty? form field)
+        validity     (fs/get-spec-validity form field)
+        is-invalid?  (= :invalid validity)
+        value        (get form field "")]
+    (renderer {:dirty?   is-dirty?
+               :ident    entity-ident
+               :id       id
+               :invalid? is-invalid?
+               :value    value})))
+
+(defn text-field-with-label [component field field-label]
+  (render-field component field
+                (fn [{:keys [invalid? id dirty? value ident]}]
+                  (f/ui-form-input {:value    value
+                                    :id       id
+                                    :error    invalid?
+                                    :onBlur   #(prim/transact! component `[(fs/mark-complete! {:entity-ident ~ident
+                                                                                               :field        ~field})
+                                                                           :root/person])
+                                    :onChange #(m/set-string! component field :event %)
+                                    :label    field-label
+                                    :placeholder field-label}))))
+
+
 (defsc FormWithValidation [this {:keys [form/first-name form/last-name form/agreed-to-conditions?] :as props}]
   {:query [:form/first-name :form/last-name :form/agreed-to-conditions? fs/form-config-join]
    :initial-state (fn [_p]
@@ -32,12 +60,7 @@
    :ident (fn [] [:form/by-id :form-with-validation])}
   (f/ui-form nil
     (f/ui-form-group {:widths :equal}
-      (f/ui-form-input {:label "First Name"
-                        :placeholder "First Name"
-                        :value first-name
-                        :onChange (fn [evt] (m/set-string! this :form/first-name :event evt))
-                        :onBlur #(prim/transact! this `[(fs/mark-complete! {:entity-ident [:form/by-id :form-with-validation]
-                                                                            :field :form/first-name})])})
+      (text-field-with-label this :form/first-name "First Name")
       (f/ui-form-input {:label "Last Name"
                         :placeholder "Last Name"
                         :value last-name
