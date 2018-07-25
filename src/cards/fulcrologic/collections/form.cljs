@@ -11,81 +11,100 @@
             [cljs.spec.alpha :as s]))
 
 
-(defmutation submit-form [{:keys [id diff]}]
-  (action [{:keys [state]}]
-          (console/log diff)
+(defmutation submit-form [{:keys [diff]}]
+  (action [{:keys [state ref]}]
+          (println diff)
           (swap! state (fn [s]
                          (-> s
-                             (fs/entity->pristine* [:form/by-id id])
+                             (fs/entity->pristine* ref)
                              (assoc :form nil))))))
+
+(defn submit-form! [component props mutation-params]
+  (let [ident (prim/get-ident component)]
+    (prim/transact! component `[(fs/mark-complete! {:entity-ident ~ident})])
+    (when (and
+            (fs/dirty? props)
+            (not (fs/invalid-spec? props)))
+      (prim/transact! component `[(submit-form ~mutation-params)
+                                  (fs/reset-form! {:form-ident [:form/by-id :form-with-validation]})
+                                  (fs/clear-complete! {:entity-ident [:form/by-id :form-with-validation]})]))))
+
+
+
 
 (s/def :form/first-name (s/and string? #(seq (clojure.string/trim %))))
 (s/def :form/agreed-to-conditions? true?)
 
-(defn render-field [component field renderer]
+(defn render-field [component field default renderer]
   (let [form         (prim/props component)
         entity-ident (prim/get-ident component form)
         id           (str (first entity-ident) "-" (second entity-ident))
         is-dirty?    (fs/dirty? form field)
         validity     (fs/get-spec-validity form field)
         is-invalid?  (= :invalid validity)
-        value        (get form field "")]
+        value        (get form field default)]
     (renderer {:dirty?   is-dirty?
                :ident    entity-ident
                :id       id
                :invalid? is-invalid?
                :value    value})))
 
-(defn text-field-with-label [component field field-label]
-  (render-field component field
+(defn text-field-with-label [component field field-label error-message]
+  (render-field component field ""
                 (fn [{:keys [invalid? id dirty? value ident]}]
-                  (f/ui-form-input {:value    value
-                                    :id       id
-                                    :error    invalid?
-                                    :onBlur   #(prim/transact! component `[(fs/mark-complete! {:entity-ident ~ident
-                                                                                               :field        ~field})
-                                                                           :root/person])
-                                    :onChange #(m/set-string! component field :event %)
-                                    :label    field-label
-                                    :placeholder field-label}))))
+                  (let [input  (f/ui-input {:value    value
+                                            :id       id
+                                            :onBlur   #(prim/transact! component `[(fs/mark-complete! {:entity-ident ~ident
+                                                                                                       :field        ~field})])
+                                            :onChange #(m/set-string! component field :event %)
+                                            :placeholder field-label})]
 
+                    (f/ui-form-field {:error    invalid?}
+                      (dom/label nil field-label)
+                      (f/ui-popup {:trigger input
+                                   :open invalid?
+                                   :content error-message
+                                   :position "top center"
+                                   :size :small}))))))
+
+(defn checkbox-with-label [component field field-label error-message]
+  (render-field component field false
+                (fn [{:keys [invalid? id dirty? value ident]}]
+                  (let [input (f/ui-form-checkbox {:error    invalid?
+                                                   :label    field-label
+                                                   :checked  value
+                                                   :onChange (fn [evt] (prim/transact! component `[(m/toggle {:field ~field})
+                                                                                                   (fs/mark-complete! {:entity-ident ~ident
+                                                                                                                       :field ~field})]))})]
+                    (f/ui-form-field {:error invalid?}
+                      (f/ui-popup {:trigger input
+                                   :open invalid?
+                                   :content error-message
+                                   :position "top center"
+                                   :size :small}))))))
+
+(f/ui-checkbox)
 
 (defsc FormWithValidation [this {:keys [form/first-name form/last-name form/agreed-to-conditions?] :as props}]
-  {:query [:form/first-name :form/last-name :form/agreed-to-conditions? fs/form-config-join]
+  {:query         [:form/first-name :form/last-name :form/agreed-to-conditions? fs/form-config-join]
    :initial-state (fn [_p]
-                    {:form/first-name ""
-                     :form/last-name ""
+                    {:form/first-name            ""
+                     :form/last-name             ""
                      :form/agreed-to-conditions? false})
-   :form-fields #{:form/first-name :form/last-name :form/agreed-to-conditions?}
-   :ident (fn [] [:form/by-id :form-with-validation])}
+   :form-fields   #{:form/first-name :form/last-name :form/agreed-to-conditions?}
+   :ident         (fn [] [:form/by-id :form-with-validation])}
   (f/ui-form nil
     (f/ui-form-group {:widths :equal}
-      (text-field-with-label this :form/first-name "First Name")
-      (f/ui-form-input {:label "Last Name"
-                        :placeholder "Last Name"
-                        :value last-name
-                        :onChange (fn [evt] (m/set-string! this :form/last-name :event evt))
-                        :onBlur #(prim/transact! this `[(fs/mark-complete! {:entity-ident [:form/by-id :form-with-validation]
-                                                                            :field :form/last-name})])}))
-    (f/ui-form-checkbox {:label "I agree to the Terms and Conditions"
-                         :checked agreed-to-conditions?
-                         :onChange (fn [evt] (prim/transact! this `[(m/toggle {:field :form/agreed-to-conditions?})
-                                                                    (fs/mark-complete! {:entity-ident [:form/by-id :form-with-validation]
-                                                                                        :field :form/agreed-to-conditions?})]))})
+      (text-field-with-label this :form/first-name "First Name" "Please fill in a first name")
+      (text-field-with-label this :form/last-name "Last Name" ""))
+    (checkbox-with-label this :form/agreed-to-conditions? "I agree to the Terms and Conditions" "Please review the Terms and Conditions")
     (f/ui-form-group nil
-      (f/ui-form-button {:onClick #(prim/transact! this `[(fs/reset-form! {:form-ident [:form/by-id :form-with-validation]})])
+      (f/ui-form-button {:onClick  #(prim/transact! this `[(fs/reset-form! {:form-ident [:form/by-id :form-with-validation]})
+                                                           (fs/clear-complete! {:entity-ident [:form/by-id :form-with-validation]})])
                          :disabled (not (fs/dirty? props))}
                         "Reset")
-      (f/ui-form-button {:onClick #(prim/transact! this `[(submit-form {:id :form-with-validation
-                                                                        :diff ~(fs/dirty-fields props true)})
-                                                          :form])
-                         :disabled (or
-                                     (fs/invalid-spec? props)
-                                     (not (fs/dirty? props)))}
+      (f/ui-form-button {:onClick #(submit-form! this props {:diff (fs/dirty-fields props true)})}
                         "Submit"))))
-
-
-
 
 (def ui-form-with-validation (prim/factory FormWithValidation))
 
@@ -104,7 +123,7 @@
                                (assoc :form form-ident)
                                (fs/add-form-config* FormWithValidation form-ident)))))))
 
-(defsc CheckboxesFormRoot [this {:keys [form]}]
+(defsc ErrorsFormRoot [this {:keys [form]}]
   {:query [{:form (prim/get-query FormWithValidation)}]
    :initial-state (fn [_] {})}
   (f/ui-segment nil
@@ -112,7 +131,7 @@
       (ui-form-with-validation form)
       (f/ui-button {:onClick #(prim/transact! this `[(new-form {})])} "New form"))))
 
-(defcard-fulcro checkboxes-form-live
-  CheckboxesFormRoot
+(defcard-fulcro errors-form-live
+  ErrorsFormRoot
   {}
   {:inspect-data true})
